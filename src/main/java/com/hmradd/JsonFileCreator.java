@@ -1,38 +1,67 @@
+package com.hmradd;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Random;
+import java.util.*;
 
 public class JsonFileCreator {
+    private static Set<String> usedToteIds = new HashSet<>();
     public static void main(String[] args) {
-
         // Set the configurable directory path
         String directoryPath = "C:\\jsonGenerator";
 
-        // Set the number of JSON files to generate
-        int numberOfFiles = 10;
+        // Set the number of JSON files to generate for I_PickOrder and I_PalletOrder
+        int numberOfPickOrderFiles = 0;
+        int numberOfPalletOrderFiles = 5;
+
+        // Generate I_PickOrder JSON files
+        createJsonFiles(directoryPath, numberOfPickOrderFiles, "I_PickOrder");
+
+        // Generate I_PalletOrder JSON files
+        createJsonFiles(directoryPath, numberOfPalletOrderFiles, "I_PalletOrder");
+    }
+
+    private static void createJsonFiles(String directoryPath, int numberOfFiles, String fileType) {
+
+        Set<String> pickTUs = readPickTUsFromFile("C:\\jsonGenerator\\pickTUs.txt");
+
 
         for (int i = 1; i <= numberOfFiles; i++) {
-            // Generate the filename with a timestamp
-            String fileName = "I_InboundOrder_" + new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + "_" + i + ".json";
 
-            // Combine the directory path and filename
+            // Check if there are remaining unused pickTUs
+            if (pickTUs.isEmpty()) {
+                System.out.println("No more available pickTUs");
+                break;
+            }
+
+
+
+            // Generate the filename with a timestamp
+            String fileName = fileType + "_" + new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + "_" + i + ".json";
             String filePath = directoryPath + File.separator + fileName;
 
-            // Create JSON content
+            // Create JSON content based on file type
             ObjectMapper objectMapper = new ObjectMapper();
             try {
-                PickOrder pickOrder = createPickOrder();
-                String jsonContent = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(pickOrder);
-
-                // Write JSON content to the file
-                writeToFile(filePath, jsonContent);
-
-                System.out.println("JSON file created at: " + filePath);
+                if ("I_PickOrder".equals(fileType)) {
+                    PickOrder pickOrder = createPickOrder();
+                    String jsonContent = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(pickOrder);
+                    writeToFile(filePath, jsonContent);
+                    System.out.println("I_PickOrder JSON file created at: " + filePath);
+                } else if ("I_PalletOrder".equals(fileType)) {
+                    PalletOrder palletOrder = createPalletOrder(pickTUs);
+                    String jsonContent = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(palletOrder);
+                    writeToFile(filePath, jsonContent);
+                    System.out.println("I_PalletOrder JSON file created at: " + filePath);
+                } else {
+                    System.out.println("Unsupported file type: " + fileType);
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -62,6 +91,60 @@ public class JsonFileCreator {
         return pickOrder;
     }
 
+    private static PalletOrder createPalletOrder(Set<String> pickTUs) {
+
+        PalletOrder palletOrder = new PalletOrder();
+        PalletOrderData palletOrderData = new PalletOrderData();
+        palletOrderData.setMessageId("PO-014523131");
+        palletOrderData.setMessageTimestamp("2021-08-24T11:34:42");
+        palletOrderData.setPalletOrderId(generateRandom7DigitInt());
+        palletOrderData.setPriority("200");
+        palletOrderData.setDeliveryDate("2021-08-24T11:34:41");
+
+        OrderLine[] orderLines = new OrderLine[2]; // Assuming you want 2 OrderLines
+
+        // Assign unique toteIds to each OrderLine
+        for (int i = 0; i < orderLines.length; i++) {
+            String selectedToteId = getRandomUnusedToteId(pickTUs);
+            usedToteIds.add(selectedToteId); // Mark the selected pickTU as used
+            orderLines[i] = new OrderLine(generateRandom8DigitNumber(), selectedToteId);
+        }
+
+//        OrderLine[] orderLines = {
+//                new OrderLine(generateRandom8DigitNumber(), "7142740"),
+//                new OrderLine(generateRandom8DigitNumber(), "7131734")
+//        };
+        palletOrderData.setOrderLines(orderLines);
+
+        palletOrder.setPalletOrder(palletOrderData);
+
+        return palletOrder;
+    }
+
+
+    private static Set<String> readPickTUsFromFile(String filePath) {
+        Set<String> pickTUs = new HashSet<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                // Split the comma-delimited values
+                String[] toteIds = line.split(",\\s*");
+                pickTUs.addAll(Arrays.asList(toteIds));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return pickTUs;
+    }
+
+    private static String getRandomUnusedToteId(Set<String> pickTUs) {
+        // Remove used ToteIds from the available set
+        pickTUs.removeAll(usedToteIds);
+
+        // Get a random ToteId from the remaining set
+
+        return pickTUs.stream().findAny().orElseThrow();
+    }
     private static String generateRandom7DigitNumber() {
         Random random = new Random();
         int randomNum = random.nextInt(9000000) + 1000000;
@@ -74,7 +157,11 @@ public class JsonFileCreator {
         return randomNum;
     }
 
-
+    private static int generateRandom7DigitInt() {
+        Random random = new Random();
+        int randomNum = random.nextInt(9000000) + 1000000;
+        return randomNum;
+    }
 
     private static void writeToFile(String filePath, String content) throws IOException {
         File file = new File(filePath);
@@ -91,8 +178,6 @@ public class JsonFileCreator {
 class PickOrder {
     @JsonProperty("PickOrder")
     private PickOrderData pickOrder;
-
-    // Getters and setters
 
     public PickOrderData getPickOrder() {
         return pickOrder;
@@ -122,8 +207,6 @@ class PickOrderData {
     private boolean sendToPacking;
     @JsonProperty("PickOrderLines")
     private PickOrderLine[] pickOrderLines;
-
-    // Getters and setters
 
     public String getMessageId() {
         return messageId;
@@ -215,6 +298,96 @@ class PickOrderLine {
         this.gtin = gtin;
         this.quantity = quantity;
     }
+}
 
-    // Getters and setters
+class PalletOrder {
+    @JsonProperty("PalletOrder")
+    private PalletOrderData palletOrder;
+
+    public PalletOrderData getPalletOrder() {
+        return palletOrder;
+    }
+
+    public void setPalletOrder(PalletOrderData palletOrder) {
+        this.palletOrder = palletOrder;
+    }
+}
+
+class PalletOrderData {
+    @JsonProperty("MessageId")
+    private String messageId;
+    @JsonProperty("MessageTimestamp")
+    private String messageTimestamp;
+    @JsonProperty("PalletOrderId")
+    private int palletOrderId;
+    @JsonProperty("Priority")
+    private String priority;
+    @JsonProperty("DeliveryDate")
+    private String deliveryDate;
+    @JsonProperty("OrderLines")
+    private OrderLine[] orderLines;
+
+    public String getMessageId() {
+        return messageId;
+    }
+
+    public void setMessageId(String messageId) {
+        this.messageId = messageId;
+    }
+
+    public String getMessageTimestamp() {
+        return messageTimestamp;
+    }
+
+    public void setMessageTimestamp(String messageTimestamp) {
+        this.messageTimestamp = messageTimestamp;
+    }
+
+    public int getPalletOrderId() {
+        return palletOrderId;
+    }
+
+    public void setPalletOrderId(int palletOrderId) {
+        this.palletOrderId = palletOrderId;
+    }
+
+    public String getPriority() {
+        return priority;
+    }
+
+    public void setPriority(String priority) {
+        this.priority = priority;
+    }
+
+    public String getDeliveryDate() {
+        return deliveryDate;
+    }
+
+    public void setDeliveryDate(String deliveryDate) {
+        this.deliveryDate = deliveryDate;
+    }
+
+    public OrderLine[] getOrderLines() {
+        return orderLines;
+    }
+
+    public void setOrderLines(OrderLine[] orderLines) {
+        this.orderLines = orderLines;
+    }
+}
+
+class OrderLine {
+    @JsonProperty("OrderLineId")
+    private int orderLineId;
+    @JsonProperty("ToteId")
+    private String toteId;
+
+    public OrderLine() {
+        // Default constructor
+    }
+
+    public OrderLine(int orderLineId, String toteId) {
+        this.orderLineId = orderLineId;
+        this.toteId = toteId;
+    }
 }
